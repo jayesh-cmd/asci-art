@@ -1,2 +1,0 @@
-# Pure HTML/JS application served statically.
-# No external Python packages are required.
