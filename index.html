@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time ASCII Webcam</title>
+    <style>
+        :root {
+            --primary-color: #00ff41;
+            --bg-color: #000000;
+            --panel-bg: rgba(0, 40, 10, 0.6);
+            --panel-border: rgba(0, 255, 65, 0.4);
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: var(--bg-color);
+            color: var(--primary-color);
+            font-family: 'Courier New', Courier, monospace;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+        }
+
+        #ascii-container {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            white-space: pre;
+            letter-spacing: 2px;
+            font-size: 8px; /* Default */
+            font-weight: bold;
+            overflow: hidden;
+            text-align: center;
+            transition: color 0.3s;
+        }
+
+        #error-screen {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            display: none;
+            background: rgba(0,0,0,0.8);
+            padding: 20px;
+            border: 2px solid var(--primary-color);
+            border-radius: 8px;
+            z-index: 100;
+            backdrop-filter: blur(5px);
+        }
+
+        #controls {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            border-radius: 12px;
+            padding: 15px 25px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            max-width: 90%;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            transition: all 0.3s ease;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .control-group label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            opacity: 0.9;
+        }
+
+        .control-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        input[type="range"] {
+            -webkit-appearance: none;
+            width: 120px;
+            background: transparent;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 14px;
+            width: 14px;
+            border-radius: 50%;
+            background: var(--primary-color);
+            cursor: pointer;
+            margin-top: -5px;
+            box-shadow: 0 0 5px var(--primary-color);
+            transition: box-shadow 0.2s;
+        }
+
+        input[type="range"]::-webkit-slider-thumb:hover {
+            box-shadow: 0 0 10px var(--primary-color);
+        }
+
+        input[type="range"]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: var(--panel-border);
+            border-radius: 2px;
+        }
+
+        select, button {
+            background: transparent;
+            color: var(--primary-color);
+            border: 1px solid var(--panel-border);
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 12px;
+            cursor: pointer;
+            outline: none;
+            transition: background 0.3s;
+        }
+
+        select:active, select:focus, button:active {
+            background: rgba(255,255,255,0.1);
+        }
+
+        select option {
+            background: #111;
+            color: #fff;
+        }
+
+        .toggle-btn {
+            background: transparent;
+            border: 1px solid var(--panel-border);
+            color: var(--primary-color);
+            padding: 5px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .toggle-btn.active {
+            background: var(--primary-color);
+            color: var(--bg-color);
+        }
+
+        /* Value display */
+        .val-disp {
+            font-size: 12px;
+            min-width: 25px;
+            display: inline-block;
+            text-align: right;
+        }
+
+        @media (max-width: 768px) {
+            #controls {
+                bottom: 0;
+                width: 100%;
+                max-width: 100%;
+                border-radius: 12px 12px 0 0;
+                padding: 10px;
+                gap: 10px;
+            }
+            input[type="range"] {
+                width: 80px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="error-screen">
+        <h2>Camera Access Denied</h2>
+        <p>Please grant camera permissions to visualize the effect.</p>
+        <button onclick="requestCamera()">Retry Camera</button>
+    </div>
+
+    <!-- Hidden video & canvas for processing -->
+    <video id="videoElement" autoplay playsinline style="display:none;"></video>
+    <canvas id="canvasElement" style="display:none;"></canvas>
+
+    <pre id="ascii-container"></pre>
+
+    <div id="controls">
+        <div class="control-group">
+            <label>Font Size</label>
+            <div class="control-row">
+                <input type="range" id="fontSize" min="6" max="24" step="1" value="6">
+                <span id="fontVal" class="val-disp">6</span>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <label>Contrast</label>
+            <div class="control-row">
+                <input type="range" id="contrast" min="0.1" max="3.0" step="0.1" value="3.0">
+                <span id="contrastVal" class="val-disp">3.0</span>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <label>Gain (Bright)</label>
+            <div class="control-row">
+                <input type="range" id="gain" min="0.1" max="2.0" step="0.1" value="1.5">
+                <span id="gainVal" class="val-disp">1.5</span>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <label>Color</label>
+            <select id="colorSel">
+                <option value="#00ff41">Green (Matrix)</option>
+                <option value="#ffffff">White</option>
+                <option value="#ff2200">Red</option>
+            </select>
+        </div>
+
+        <div class="control-group" style="justify-content: flex-end; flex-direction: row; gap: 10px;">
+            <button id="mirrorBtn" class="toggle-btn active">MIRROR: ON</button>
+            <button id="invertBtn" class="toggle-btn active">INVERT: ON</button>
+        </div>
+    </div>
+
+    <script>
+        // DOM Elements
+        const video = document.getElementById('videoElement');
+        const canvas = document.getElementById('canvasElement');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        const asciiContainer = document.getElementById('ascii-container');
+        const errorScreen = document.getElementById('error-screen');
+
+        // Control Elements
+        const fontSizeSlider = document.getElementById('fontSize');
+        const contrastSlider = document.getElementById('contrast');
+        const gainSlider = document.getElementById('gain');
+        const colorSel = document.getElementById('colorSel');
+        const mirrorBtn = document.getElementById('mirrorBtn');
+        const invertBtn = document.getElementById('invertBtn');
+
+        // Config State
+        let config = {
+            fontSize: parseInt(fontSizeSlider.value),
+            contrast: parseFloat(contrastSlider.value),
+            gain: parseFloat(gainSlider.value),
+            charsetType: 'complex',
+            color: colorSel.value,
+            invert: true,
+            mirror: true
+        };
+
+        // Charsets (from dense/dark to light/bright)
+        const charsets = {
+            complex: ["@", "#", "S", "%", "?", "*", "+", ";", ":", ",", ".", " "]
+        };
+
+        // Update Theme Function
+        function updateTheme() {
+            const root = document.documentElement;
+            root.style.setProperty('--primary-color', config.color);
+            
+            // Adjust panel background based on color
+            if (config.color === '#00ff41') {
+                root.style.setProperty('--panel-bg', 'rgba(0, 40, 10, 0.6)');
+                root.style.setProperty('--panel-border', 'rgba(0, 255, 65, 0.4)');
+            } else if (config.color === '#ffffff') {
+                root.style.setProperty('--panel-bg', 'rgba(40, 40, 40, 0.6)');
+                root.style.setProperty('--panel-border', 'rgba(255, 255, 255, 0.4)');
+            } else if (config.color === '#ff2200') {
+                root.style.setProperty('--panel-bg', 'rgba(40, 0, 0, 0.6)');
+                root.style.setProperty('--panel-border', 'rgba(255, 34, 0, 0.4)');
+            }
+        }
+
+        // Setup Event Listeners
+        function setupControls() {
+            fontSizeSlider.addEventListener('input', (e) => {
+                config.fontSize = parseInt(e.target.value);
+                document.getElementById('fontVal').textContent = config.fontSize;
+                asciiContainer.style.fontSize = config.fontSize + 'px';
+                // Precise letter spacing to ensure aspect ratio consistency
+                asciiContainer.style.letterSpacing = (config.fontSize * 0.25) + "px";
+                asciiContainer.style.lineHeight = (config.fontSize * 0.8) + "px";
+            });
+
+            contrastSlider.addEventListener('input', (e) => {
+                config.contrast = parseFloat(e.target.value);
+                document.getElementById('contrastVal').textContent = config.contrast.toFixed(1);
+            });
+
+            gainSlider.addEventListener('input', (e) => {
+                config.gain = parseFloat(e.target.value);
+                document.getElementById('gainVal').textContent = config.gain.toFixed(1);
+            });
+
+            colorSel.addEventListener('change', (e) => {
+                config.color = e.target.value;
+                updateTheme();
+            });
+
+            mirrorBtn.addEventListener('click', () => {
+                config.mirror = !config.mirror;
+                mirrorBtn.classList.toggle('active');
+                mirrorBtn.textContent = config.mirror ? 'MIRROR: ON' : 'MIRROR: OFF';
+            });
+
+            invertBtn.addEventListener('click', () => {
+                config.invert = !config.invert;
+                invertBtn.classList.toggle('active');
+                invertBtn.textContent = config.invert ? 'INVERT: ON' : 'INVERT: OFF';
+            });
+        }
+
+        async function requestCamera() {
+            errorScreen.style.display = 'none';
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        width: { ideal: 640 },
+                        height: { ideal: 480 },
+                        facingMode: "user"
+                    } 
+                });
+                video.srcObject = stream;
+                video.onloadeddata = () => {
+                    video.play();
+                    requestAnimationFrame(processFrame);
+                };
+            } catch (err) {
+                console.error("Camera access denied or error:", err);
+                errorScreen.style.display = 'block';
+            }
+        }
+
+        // Contrast adjustment helper function
+        function applyContrast(brightness, contrast) {
+            // contrast formula: ((color / 255.0 - 0.5) * contrast + 0.5) * 255.0
+            let adjusted = ((brightness / 255.0 - 0.5) * contrast + 0.5) * 255.0;
+            return Math.max(0, Math.min(255, adjusted));
+        }
+
+        let lastRenderTime = 0;
+        const TARGET_FPS = 24;
+        const RENDER_INTERVAL = 1000 / TARGET_FPS;
+
+        function processFrame(timestamp) {
+            if (!video.videoWidth) {
+                requestAnimationFrame(processFrame);
+                return;
+            }
+
+            // Throttle FPS to TARGET_FPS
+            if (timestamp - lastRenderTime < RENDER_INTERVAL) {
+                requestAnimationFrame(processFrame);
+                return;
+            }
+            lastRenderTime = timestamp;
+
+            const charWidth = config.fontSize * 0.6; // Approximate width geometry of monospace char
+            const charHeight = config.fontSize * 0.8; // Line height scaling
+
+            // Check dimensions of container
+            const containerWidth = document.body.clientWidth || window.innerWidth;
+            const containerHeight = document.body.clientHeight || window.innerHeight;
+
+            // Calculate how many characters fit in the container
+            // We limit resolution slightly to prevent massive performance drops on resize
+            let cols = Math.floor(containerWidth / charWidth);
+            let rows = Math.floor(containerHeight / charHeight);
+
+            // Cap dimensions to something reasonable to ensure 24fps
+            if (cols > 250) cols = 250;
+            if (rows > 150) rows = 150;
+
+            if (canvas.width !== cols || canvas.height !== rows) {
+                canvas.width = cols;
+                canvas.height = rows;
+            }
+
+            // Draw video to reduced size canvas and implicitly downsample
+            if (config.mirror) {
+                ctx.save();
+                ctx.translate(cols, 0);
+                ctx.scale(-1, 1);
+                ctx.drawImage(video, 0, 0, cols, rows);
+                ctx.restore();
+            } else {
+                ctx.drawImage(video, 0, 0, cols, rows);
+            }
+            
+            const imageData = ctx.getImageData(0, 0, cols, rows);
+            const data = imageData.data;
+            const charsetArray = charsets[config.charsetType];
+            const maxIndex = charsetArray.length - 1;
+
+            let asciiStr = '';
+
+            for (let y = 0; y < rows; y++) {
+                for (let x = 0; x < cols; x++) {
+                    const i = (y * cols + x) * 4;
+                    const r = data[i];
+                    const g = data[i + 1];
+                    const b = data[i + 2];
+
+                    // Luminance formula
+                    let brightness = 0.299 * r + 0.587 * g + 0.114 * b;
+                    
+                    // Apply gain
+                    brightness *= config.gain;
+                    
+                    // Apply contrast
+                    if (config.contrast !== 1.0) {
+                        brightness = applyContrast(brightness, config.contrast);
+                    } else {
+                        // Clamp if gain goes over 255
+                        if (brightness > 255) brightness = 255;
+                    }
+
+                    // Map brightness (0 - 255) to charset index
+                    let charIndex = Math.floor((brightness / 255) * maxIndex);
+                    
+                    // Constrain index
+                    if (charIndex > maxIndex) charIndex = maxIndex;
+                    if (charIndex < 0) charIndex = 0;
+
+                    if (config.invert) {
+                        charIndex = maxIndex - charIndex;
+                    }
+
+                    asciiStr += charsetArray[charIndex];
+                }
+                asciiStr += '\n'; // Add newline per row
+            }
+
+            // Add precision bounding transform to make font size smoothly fit the FULL window gapless
+            const xFitScale = containerWidth / (cols * charWidth);
+            const yFitScale = containerHeight / (rows * charHeight);
+            let perfectScale = Math.max(xFitScale, yFitScale);
+            if (perfectScale < 1) perfectScale = 1; // avoid shrinking below required size
+            
+            asciiContainer.style.transform = `scale(${perfectScale})`;
+            
+            // Render to DOM
+            asciiContainer.textContent = asciiStr;
+
+            requestAnimationFrame(processFrame);
+        }
+
+        // Initialize state
+        updateTheme();
+        asciiContainer.style.fontSize = config.fontSize + 'px';
+        asciiContainer.style.letterSpacing = (config.fontSize * 0.25) + "px";
+        asciiContainer.style.lineHeight = (config.fontSize * 0.8) + "px";
+        setupControls();
+        
+        // Start camera
+        requestCamera();
+
+    </script>
+</body>
+</html>
